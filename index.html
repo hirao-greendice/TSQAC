@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>オフライン音声ミキサー</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
+          sans-serif;
+        background-color: #f9fafb;
+        color: #111;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: radial-gradient(
+            circle at top,
+            rgba(59, 130, 246, 0.15),
+            transparent 60%
+          ),
+          #0f172a;
+        color: #f8fafc;
+        display: flex;
+        justify-content: center;
+        padding: 2rem 1rem 4rem;
+      }
+      .page {
+        width: min(960px, 100%);
+      }
+      header {
+        margin-bottom: 1.5rem;
+        text-align: center;
+      }
+      h1 {
+        font-size: clamp(1.8rem, 4vw, 3rem);
+        margin-bottom: 0.5rem;
+      }
+      p {
+        margin: 0;
+        line-height: 1.6;
+        color: #cbd5f5;
+      }
+      .tracks {
+        display: grid;
+        gap: 1.25rem;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      }
+      .track-card {
+        background: rgba(15, 23, 42, 0.65);
+        border: 1px solid rgba(148, 163, 184, 0.3);
+        border-radius: 1.25rem;
+        padding: 1.5rem;
+        backdrop-filter: blur(12px);
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.5);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .track-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+      }
+      .track-title span {
+        font-size: 0.9rem;
+        color: #94a3b8;
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-wrap: wrap;
+      }
+      button {
+        border: none;
+        border-radius: 999px;
+        padding: 0.55rem 1.35rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #0f172a;
+        background: linear-gradient(120deg, #fbbf24, #f97316);
+        cursor: pointer;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+      }
+      button.secondary {
+        background: rgba(15, 23, 42, 0.65);
+        color: #f8fafc;
+        border: 1px solid rgba(148, 163, 184, 0.4);
+      }
+      button.loop-disabled {
+        opacity: 0.65;
+      }
+      button:hover {
+        transform: translateY(-2px) scale(1.01);
+        box-shadow: 0 8px 15px rgba(249, 115, 22, 0.35);
+      }
+      button:active {
+        transform: translateY(0);
+        box-shadow: none;
+      }
+      input[type="range"] {
+        flex: 1;
+        accent-color: #38bdf8;
+        appearance: none;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.35);
+        cursor: pointer;
+      }
+      .volume-value {
+        font-variant-numeric: tabular-nums;
+        color: #e2e8f0;
+      }
+      .status {
+        font-size: 0.88rem;
+        color: #6ee7b7;
+      }
+      footer {
+        text-align: center;
+        margin-top: 2rem;
+        color: #94a3b8;
+        font-size: 0.9rem;
+      }
+      .actions {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 2rem;
+      }
+      .clear-button {
+        background: #f97316;
+        color: #fff;
+        padding: 0.75rem 1.5rem;
+        border-radius: 999px;
+        border: none;
+        font-weight: 700;
+        font-size: 1rem;
+        letter-spacing: 0.05em;
+        cursor: pointer;
+        transition: transform 0.2s ease, opacity 0.2s ease;
+      }
+      .clear-button:hover {
+        transform: translateY(-2px);
+        opacity: 0.95;
+      }
+      .clear-overlay {
+        position: fixed;
+        inset: 0;
+        background: #000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.2s ease, visibility 0.2s ease;
+        z-index: 1000;
+      }
+      .clear-overlay.show {
+        visibility: visible;
+        opacity: 1;
+      }
+      .clear-card {
+        --clear-scale: 1;
+        position: relative;
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .clear-card img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        transform-origin: center;
+        transform: scale(var(--clear-scale));
+      }
+      .clear-exit-zone {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 140px;
+        height: 140px;
+        cursor: pointer;
+        background: transparent;
+        touch-action: manipulation;
+      }
+      .clear-exit-zone:active {
+        background: rgba(0, 0, 0, 0.08);
+      }
+      .clear-controls {
+        position: absolute;
+        bottom: 32px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        background: rgba(15, 23, 42, 0.75);
+        padding: 0.65rem 1.35rem;
+        border-radius: 999px;
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+        font-size: 0.95rem;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+      .clear-controls.visible {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .clear-controls label {
+        font-weight: 600;
+        letter-spacing: 0.05em;
+      }
+      .clear-controls input[type="range"] {
+        width: min(260px, 40vw);
+        accent-color: #f97316;
+      }
+      .clear-controls span {
+        font-variant-numeric: tabular-nums;
+      }
+      @media (max-width: 520px) {
+        .controls {
+          flex-direction: column;
+          align-items: stretch;
+        }
+        button {
+          width: 100%;
+          text-align: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <header>
+        <h1>オフライン音声ミキサー</h1>
+        <p>
+          下の各トラックで再生・一時停止や音量調整ができます。ファイルはローカルに保存されているのでネットが切れても使用可能です。
+        </p>
+      </header>
+      <div class="actions">
+        <button type="button" class="clear-button" id="showClear">
+          クリア画像を表示
+        </button>
+      </div>
+
+      <section class="tracks" id="tracks"></section>
+
+      <footer>音声ファイルはブラウザ内のみで再生されます。</footer>
+    </div>
+
+    <div class="clear-overlay" id="clearOverlay" aria-hidden="true">
+      <div class="clear-card">
+        <img src="CLEAR.png" alt="CLEAR画面" />
+        <div class="clear-exit-zone" data-role="exit-zone" aria-label="閉じる"></div>
+        <div class="clear-controls" aria-label="画像サイズ調整">
+          <label for="clearScale">サイズ</label>
+          <input
+            type="range"
+            id="clearScale"
+            min="50"
+            max="150"
+            value="100"
+          />
+          <span id="clearScaleValue">100%</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const files = [
+        { title: "トラック 1", file: "11.mp3" },
+        { title: "トラック 2", file: "22.mp3" },
+        { title: "トラック 3", file: "33.mp3" },
+      ];
+
+      const tracksEl = document.getElementById("tracks");
+      const clearOverlay = document.getElementById("clearOverlay");
+      const showClearBtn = document.getElementById("showClear");
+      const exitZone = clearOverlay.querySelector("[data-role='exit-zone']");
+      const clearCard = clearOverlay.querySelector(".clear-card");
+      const clearControls = clearOverlay.querySelector(".clear-controls");
+      const scaleSlider = document.getElementById("clearScale");
+      const scaleValue = document.getElementById("clearScaleValue");
+      const EXIT_TAP_REQUIREMENT = 5;
+      const TAP_RESET_DELAY = 1500;
+      const CONTROLS_HIDE_DELAY = 1200;
+      let exitTapCount = 0;
+      let tapResetTimer = null;
+      let fullscreenRequested = false;
+      let controlsVisibilityTimer = null;
+
+      files.forEach(({ title, file }, index) => {
+        const card = document.createElement("article");
+        card.className = "track-card";
+        card.innerHTML = `
+          <div class="track-title">
+            ${title}
+            <span>${file}</span>
+          </div>
+          <div class="controls">
+            <button type="button" data-action="toggle">再生</button>
+            <button type="button" data-action="loop" class="secondary">ループON</button>
+            <input type="range" min="0" max="100" value="70" data-role="volume"/>
+            <span class="volume-value">70%</span>
+          </div>
+          <div class="status" data-role="status">待機中</div>
+          <audio src="${file}" preload="auto" loop></audio>
+        `;
+        const audio = card.querySelector("audio");
+        const button = card.querySelector("[data-action='toggle']");
+        const loopButton = card.querySelector("[data-action='loop']");
+        const slider = card.querySelector("[data-role='volume']");
+        const volumeValue = card.querySelector(".volume-value");
+        const status = card.querySelector("[data-role='status']");
+
+        audio.volume = Number(slider.value) / 100;
+
+        button.addEventListener("click", () => {
+          if (audio.paused) {
+            pauseAll();
+            audio.play();
+          } else {
+            audio.pause();
+          }
+        });
+
+        loopButton.addEventListener("click", () => {
+          audio.loop = !audio.loop;
+          loopButton.textContent = audio.loop ? "ループON" : "ループOFF";
+          loopButton.classList.toggle("loop-disabled", !audio.loop);
+        });
+
+        audio.addEventListener("play", () => {
+          button.textContent = "一時停止";
+          status.textContent = "再生中";
+        });
+
+        audio.addEventListener("pause", () => {
+          button.textContent = "再生";
+          status.textContent = "待機中";
+        });
+
+        audio.addEventListener("ended", () => {
+          status.textContent = "終了";
+          button.textContent = "再生";
+        });
+
+        slider.addEventListener("input", () => {
+          const volume = Number(slider.value) / 100;
+          audio.volume = volume;
+          volumeValue.textContent = `${slider.value}%`;
+        });
+
+        tracksEl.appendChild(card);
+      });
+
+      showClearBtn.addEventListener("click", () => {
+        hideClearControls(true);
+        enterFullscreen();
+        clearOverlay.classList.add("show");
+        clearOverlay.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+      });
+
+      exitZone.addEventListener("click", handleExitZoneTap);
+      scaleSlider.addEventListener("input", () => {
+        updateClearScale(scaleSlider.value);
+      });
+      updateClearScale(scaleSlider.value);
+      ["pointermove", "pointerdown"].forEach((eventName) => {
+        clearOverlay.addEventListener(eventName, () => {
+          if (clearOverlay.classList.contains("show")) {
+            showClearControls();
+          }
+        });
+      });
+
+      function handleExitZoneTap(event) {
+        event.stopPropagation();
+        exitTapCount += 1;
+        if (exitTapCount >= EXIT_TAP_REQUIREMENT) {
+          hideOverlay();
+          resetTapCounter();
+        } else {
+          scheduleTapReset();
+        }
+      }
+
+      function scheduleTapReset() {
+        clearTimeout(tapResetTimer);
+        tapResetTimer = setTimeout(() => {
+          exitTapCount = 0;
+        }, TAP_RESET_DELAY);
+      }
+
+      function resetTapCounter() {
+        clearTimeout(tapResetTimer);
+        tapResetTimer = null;
+        exitTapCount = 0;
+      }
+
+      function hideOverlay() {
+        clearOverlay.classList.remove("show");
+        clearOverlay.setAttribute("aria-hidden", "true");
+        document.body.style.overflow = "";
+        resetTapCounter();
+        hideClearControls(true);
+        if (fullscreenRequested) {
+          leaveFullscreen();
+          fullscreenRequested = false;
+        }
+      }
+
+      function pauseAll() {
+        document.querySelectorAll("audio").forEach((audioEl) => {
+          audioEl.pause();
+        });
+      }
+
+      function showClearControls() {
+        clearControls.classList.add("visible");
+        clearTimeout(controlsVisibilityTimer);
+        controlsVisibilityTimer = setTimeout(() => {
+          hideClearControls();
+        }, CONTROLS_HIDE_DELAY);
+      }
+
+      function hideClearControls(force = false) {
+        if (force) {
+          clearControls.classList.remove("visible");
+          clearTimeout(controlsVisibilityTimer);
+          controlsVisibilityTimer = null;
+          return;
+        }
+        clearControls.classList.remove("visible");
+      }
+
+      function updateClearScale(value) {
+        const numericValue = Number(value);
+        const scale = Math.min(Math.max(numericValue, 10), 200) / 100;
+        clearCard.style.setProperty("--clear-scale", scale);
+        scaleValue.textContent = `${numericValue}%`;
+      }
+
+      function enterFullscreen() {
+        const el = document.documentElement;
+        const request =
+          el.requestFullscreen ||
+          el.webkitRequestFullscreen ||
+          el.msRequestFullscreen;
+        const isFullscreen =
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          document.msFullscreenElement;
+        if (!request || isFullscreen) {
+          fullscreenRequested = Boolean(isFullscreen);
+          return;
+        }
+        fullscreenRequested = true;
+        try {
+          const result = request.call(el);
+          if (result && typeof result.then === "function") {
+            result.catch(() => {
+              fullscreenRequested = false;
+            });
+          }
+        } catch (error) {
+          fullscreenRequested = false;
+        }
+      }
+
+      function leaveFullscreen() {
+        const exit =
+          document.exitFullscreen ||
+          document.webkitExitFullscreen ||
+          document.msExitFullscreen;
+        const isFullscreen =
+          document.fullscreenElement ||
+          document.webkitFullscreenElement ||
+          document.msFullscreenElement;
+        if (!exit || !isFullscreen) {
+          return;
+        }
+        try {
+          const result = exit.call(document);
+          if (result && typeof result.then === "function") {
+            result.catch(() => {});
+          }
+        } catch (error) {}
+      }
+    </script>
+  </body>
+</html>
