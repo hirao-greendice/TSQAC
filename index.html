@@ -227,6 +227,20 @@
       .clear-controls span {
         font-variant-numeric: tabular-nums;
       }
+      .clear-ok-button {
+        border: none;
+        border-radius: 999px;
+        padding: 0.35rem 1rem;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        background: #f97316;
+        color: #fff;
+        cursor: pointer;
+      }
+      .clear-ok-button:hover {
+        opacity: 0.95;
+      }
       .idle-dimmer {
         position: fixed;
         inset: 0;
@@ -289,6 +303,7 @@
             value="100"
           />
           <span id="clearScaleValue">100%</span>
+          <button type="button" class="clear-ok-button" id="clearOk">OK</button>
         </div>
         <audio id="clearSound" src="clear.mp3" preload="auto"></audio>
       </div>
@@ -312,17 +327,28 @@
       const clearControls = clearOverlay.querySelector(".clear-controls");
       const scaleSlider = document.getElementById("clearScale");
       const scaleValue = document.getElementById("clearScaleValue");
+      const clearOkBtn = document.getElementById("clearOk");
       const EXIT_TAP_REQUIREMENT = 5;
       const TAP_RESET_DELAY = 1500;
       const CONTROLS_HIDE_DELAY = 1200;
       const IDLE_DIM_DELAY = 10000;
       const IDLE_EVENTS = ["pointerdown", "pointermove", "keydown", "touchstart"];
+      const CLICKER_KEYS = new Set([
+        "PageUp",
+        "PageDown",
+        "ArrowUp",
+        "ArrowDown",
+        "ArrowLeft",
+        "ArrowRight",
+      ]);
+      const activeClickerKeys = new Set();
       let exitTapCount = 0;
       let tapResetTimer = null;
       let fullscreenRequested = false;
       let controlsVisibilityTimer = null;
       let idleTimer = null;
       let isClearOverlayActive = false;
+      let clearControlsLocked = false;
 
       files.forEach(({ title, file }, index) => {
         const card = document.createElement("article");
@@ -423,9 +449,19 @@
         document.addEventListener(eventName, handleUserActivity);
       });
 
+      ["keydown", "keyup"].forEach((eventName) => {
+        document.addEventListener(eventName, handleClickerKey, {
+          capture: true,
+        });
+      });
+
       exitZone.addEventListener("click", handleExitZoneTap);
       scaleSlider.addEventListener("input", () => {
         updateClearScale(scaleSlider.value);
+      });
+      clearOkBtn.addEventListener("click", () => {
+        clearControlsLocked = true;
+        hideClearControls(true);
       });
       updateClearScale(scaleSlider.value);
       ["pointermove", "pointerdown"].forEach((eventName) => {
@@ -538,6 +574,9 @@
       }
 
       function showClearControls() {
+        if (clearControlsLocked) {
+          return;
+        }
         clearControls.classList.add("visible");
         clearTimeout(controlsVisibilityTimer);
         controlsVisibilityTimer = setTimeout(() => {
@@ -570,6 +609,42 @@
         const result = clearSound.play();
         if (result && typeof result.then === "function") {
           result.catch(() => {});
+        }
+      }
+
+      function handleClickerKey(event) {
+        const key = event.key;
+        const code = event.code;
+        if (!CLICKER_KEYS.has(key) && !CLICKER_KEYS.has(code)) {
+          return;
+        }
+        const keyId = CLICKER_KEYS.has(code) ? code : key;
+        const target = event.target;
+        if (
+          target &&
+          (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (isClearOverlayActive) {
+          enterFullscreen();
+        }
+        if (event.type === "keydown") {
+          if (activeClickerKeys.has(keyId)) {
+            return;
+          }
+          activeClickerKeys.add(keyId);
+          playClearSound();
+          return;
+        }
+        if (event.type === "keyup") {
+          if (activeClickerKeys.has(keyId)) {
+            activeClickerKeys.delete(keyId);
+            return;
+          }
+          playClearSound();
         }
       }
 
