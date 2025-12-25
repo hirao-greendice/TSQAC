@@ -227,6 +227,21 @@
       .clear-controls span {
         font-variant-numeric: tabular-nums;
       }
+      .idle-dimmer {
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 6, 23, 0.72);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
+        z-index: 500;
+      }
+      .idle-dimmer.show {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+      }
       @media (max-width: 520px) {
         .controls {
           flex-direction: column;
@@ -258,6 +273,8 @@
       <footer>音声ファイルはブラウザ内のみで再生されます。</footer>
     </div>
 
+    <div class="idle-dimmer" id="idleDimmer" aria-hidden="true"></div>
+
     <div class="clear-overlay" id="clearOverlay" aria-hidden="true">
       <div class="clear-card">
         <img src="CLEAR.png" alt="CLEAR画面" />
@@ -273,6 +290,7 @@
           />
           <span id="clearScaleValue">100%</span>
         </div>
+        <audio id="clearSound" src="clear.mp3" preload="auto"></audio>
       </div>
     </div>
 
@@ -286,18 +304,25 @@
       const tracksEl = document.getElementById("tracks");
       const clearOverlay = document.getElementById("clearOverlay");
       const showClearBtn = document.getElementById("showClear");
+      const idleDimmer = document.getElementById("idleDimmer");
       const exitZone = clearOverlay.querySelector("[data-role='exit-zone']");
       const clearCard = clearOverlay.querySelector(".clear-card");
+      const clearImage = clearOverlay.querySelector(".clear-card img");
+      const clearSound = document.getElementById("clearSound");
       const clearControls = clearOverlay.querySelector(".clear-controls");
       const scaleSlider = document.getElementById("clearScale");
       const scaleValue = document.getElementById("clearScaleValue");
       const EXIT_TAP_REQUIREMENT = 5;
       const TAP_RESET_DELAY = 1500;
       const CONTROLS_HIDE_DELAY = 1200;
+      const IDLE_DIM_DELAY = 10000;
+      const IDLE_EVENTS = ["pointerdown", "pointermove", "keydown", "touchstart"];
       let exitTapCount = 0;
       let tapResetTimer = null;
       let fullscreenRequested = false;
       let controlsVisibilityTimer = null;
+      let idleTimer = null;
+      let isClearOverlayActive = false;
 
       files.forEach(({ title, file }, index) => {
         const card = document.createElement("article");
@@ -355,6 +380,10 @@
           button.textContent = "再生";
         });
 
+        audio.addEventListener("play", handlePlaybackChange);
+        audio.addEventListener("pause", handlePlaybackChange);
+        audio.addEventListener("ended", handlePlaybackChange);
+
         slider.addEventListener("input", () => {
           const volume = Number(slider.value) / 100;
           audio.volume = volume;
@@ -365,11 +394,33 @@
       });
 
       showClearBtn.addEventListener("click", () => {
+        isClearOverlayActive = true;
+        hideDimmer();
+        stopIdleTimer();
         hideClearControls(true);
         enterFullscreen();
         clearOverlay.classList.add("show");
         clearOverlay.setAttribute("aria-hidden", "false");
         document.body.style.overflow = "hidden";
+      });
+
+      clearImage.addEventListener("click", () => {
+        if (clearOverlay.classList.contains("show")) {
+          playClearSound();
+        }
+      });
+
+      idleDimmer.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        hideDimmer();
+        if (isAnyTrackPlaying() && !isClearOverlayActive) {
+          scheduleIdleDim();
+        }
+      });
+
+      IDLE_EVENTS.forEach((eventName) => {
+        document.addEventListener(eventName, handleUserActivity);
       });
 
       exitZone.addEventListener("click", handleExitZoneTap);
@@ -415,6 +466,11 @@
         document.body.style.overflow = "";
         resetTapCounter();
         hideClearControls(true);
+        isClearOverlayActive = false;
+        hideDimmer();
+        if (isAnyTrackPlaying()) {
+          scheduleIdleDim();
+        }
         if (fullscreenRequested) {
           leaveFullscreen();
           fullscreenRequested = false;
@@ -425,6 +481,60 @@
         document.querySelectorAll("audio").forEach((audioEl) => {
           audioEl.pause();
         });
+      }
+
+      function handleUserActivity() {
+        if (!isAnyTrackPlaying() || isClearOverlayActive) {
+          return;
+        }
+        hideDimmer();
+        scheduleIdleDim();
+      }
+
+      function getTrackAudios() {
+        return tracksEl.querySelectorAll("audio");
+      }
+
+      function isAnyTrackPlaying() {
+        return Array.from(getTrackAudios()).some((audioEl) => !audioEl.paused);
+      }
+
+      function handlePlaybackChange() {
+        if (isAnyTrackPlaying()) {
+          hideDimmer();
+          scheduleIdleDim();
+        } else {
+          hideDimmer();
+          stopIdleTimer();
+        }
+      }
+
+      function scheduleIdleDim() {
+        if (isClearOverlayActive) {
+          return;
+        }
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => {
+          if (isClearOverlayActive || !isAnyTrackPlaying()) {
+            return;
+          }
+          showDimmer();
+        }, IDLE_DIM_DELAY);
+      }
+
+      function stopIdleTimer() {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
+
+      function showDimmer() {
+        idleDimmer.classList.add("show");
+        idleDimmer.setAttribute("aria-hidden", "false");
+      }
+
+      function hideDimmer() {
+        idleDimmer.classList.remove("show");
+        idleDimmer.setAttribute("aria-hidden", "true");
       }
 
       function showClearControls() {
@@ -450,6 +560,17 @@
         const scale = Math.min(Math.max(numericValue, 10), 200) / 100;
         clearCard.style.setProperty("--clear-scale", scale);
         scaleValue.textContent = `${numericValue}%`;
+      }
+
+      function playClearSound() {
+        if (!clearSound) {
+          return;
+        }
+        clearSound.currentTime = 0;
+        const result = clearSound.play();
+        if (result && typeof result.then === "function") {
+          result.catch(() => {});
+        }
       }
 
       function enterFullscreen() {
