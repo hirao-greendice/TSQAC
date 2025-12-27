@@ -341,6 +341,9 @@
         "ArrowLeft",
         "ArrowRight",
       ]);
+      const MAX_VOLUME = 200;
+      const audioNodeMap = new WeakMap();
+      let audioContext = null;
       const activeClickerKeys = new Set();
       let exitTapCount = 0;
       let tapResetTimer = null;
@@ -361,7 +364,7 @@
           <div class="controls">
             <button type="button" data-action="toggle">再生</button>
             <button type="button" data-action="loop" class="secondary">ループON</button>
-            <input type="range" min="0" max="100" value="70" data-role="volume"/>
+            <input type="range" min="0" max="200" value="70" data-role="volume"/>
             <span class="volume-value">70%</span>
           </div>
           <div class="status" data-role="status">待機中</div>
@@ -374,7 +377,8 @@
         const volumeValue = card.querySelector(".volume-value");
         const status = card.querySelector("[data-role='status']");
 
-        audio.volume = Number(slider.value) / 100;
+        const initialVolume = Number(slider.value);
+        audio.volume = Math.min(initialVolume, 100) / 100;
 
         button.addEventListener("click", () => {
           if (audio.paused) {
@@ -411,8 +415,7 @@
         audio.addEventListener("ended", handlePlaybackChange);
 
         slider.addEventListener("input", () => {
-          const volume = Number(slider.value) / 100;
-          audio.volume = volume;
+          setTrackVolume(audio, slider.value);
           volumeValue.textContent = `${slider.value}%`;
         });
 
@@ -646,6 +649,53 @@
           }
           playClearSound();
         }
+      }
+
+      function ensureAudioContextRunning() {
+        if (!audioContext) {
+          const AudioContextCtor =
+            window.AudioContext || window.webkitAudioContext;
+          if (!AudioContextCtor) {
+            return null;
+          }
+          audioContext = new AudioContextCtor();
+        }
+        if (audioContext.state === "suspended") {
+          const resumeResult = audioContext.resume();
+          if (resumeResult && typeof resumeResult.then === "function") {
+            resumeResult.catch(() => {});
+          }
+        }
+        return audioContext;
+      }
+
+      function getOrCreateAudioNodes(audioEl) {
+        if (audioNodeMap.has(audioEl)) {
+          return audioNodeMap.get(audioEl);
+        }
+        const ctx = ensureAudioContextRunning();
+        if (!ctx) {
+          return null;
+        }
+        const source = ctx.createMediaElementSource(audioEl);
+        const gain = ctx.createGain();
+        source.connect(gain).connect(ctx.destination);
+        const nodes = { source, gain };
+        audioNodeMap.set(audioEl, nodes);
+        return nodes;
+      }
+
+      function setTrackVolume(audioEl, value) {
+        const numericValue = Number(value);
+        const clampedValue = Math.min(Math.max(numericValue, 0), MAX_VOLUME);
+        const gainValue = clampedValue / 100;
+        const nodes = getOrCreateAudioNodes(audioEl);
+        if (!nodes) {
+          audioEl.volume = Math.min(gainValue, 1);
+          return;
+        }
+        nodes.gain.gain.value = gainValue;
+        audioEl.volume = 1;
       }
 
       function enterFullscreen() {
